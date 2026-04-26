@@ -87,11 +87,25 @@ print("\n".join(out))
 PYEOF
 )
 
-# Emit as SessionStart additionalContext (Claude Code hook protocol).
-# If python jq-equivalent isn't trivial, just print plain text — Claude Code
-# will treat hook stdout as additional context for SessionStart.
+# Emit JSON so Claude Code shows a user-visible banner (systemMessage)
+# AND injects the full preview as additional context for the model.
+# Falls back to plain stdout if python is missing.
 if [ -n "$preview" ]; then
-  printf '%s\n' "$preview"
+  python3 - "$preview" <<'PYEOF' 2>/dev/null || printf '%s\n' "$preview"
+import json, sys
+preview = sys.argv[1]
+banner = next((ln for ln in preview.splitlines() if ln.startswith("📂")),
+              "📂 이전 세션 핸드오프 발견")
+banner += "  ·  '이어가자' 또는 /handoff-load 로 복원"
+out = {
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": preview,
+    },
+    "systemMessage": banner,
+}
+print(json.dumps(out, ensure_ascii=False))
+PYEOF
 fi
 
 exit 0
