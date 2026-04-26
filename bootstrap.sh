@@ -10,7 +10,7 @@
 #   HANDOFF_REPO      Git URL. Default: https://github.com/NewTurn2017/HandOff.git
 #   HANDOFF_REF       Git ref to check out. Default: main
 
-set -euo pipefail
+set -eo pipefail
 
 REPO_URL="${HANDOFF_REPO:-https://github.com/NewTurn2017/HandOff.git}"
 REF="${HANDOFF_REF:-main}"
