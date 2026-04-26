@@ -10,91 +10,123 @@
 
 ## TL;DR — 한 줄 설치
 
+### macOS / Linux
+
 ```bash
-git clone https://github.com/NewTurn2017/HandOff.git ~/dev/HandOff && \
-  cd ~/dev/HandOff && ./install.sh --hook
+curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash
 ```
 
-검증:
+SessionStart 훅까지 함께 등록하려면:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash -s -- --hook
+```
+
+### Windows (PowerShell)
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.ps1 | iex
+```
+
+훅 포함:
+
+```powershell
+$env:HANDOFF_HOOK=1; iwr -useb https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.ps1 | iex
+```
+
+### 검증
 
 ```bash
 ls -l ~/.claude/skills/handoff-save ~/.claude/skills/handoff-load \
        ~/.codex/skills/handoff-save  ~/.codex/skills/handoff-load
 ```
 
-네 줄 모두 이 레포 경로로 가는 심링크면 끝. Claude Code/Codex를 새로 띄우고 `/handoff-save` 또는 "핸드오프 저장해줘"를 호출하면 동작한다.
+네 줄 모두 `~/.handoff/skills/handoff-*` 심링크면 끝. Claude Code/Codex를 새 세션으로 띄우고 `/handoff-save` 또는 "핸드오프 저장해줘"를 호출하면 동작합니다.
 
 ---
 
-## AI 에이전트용 설치 가이드
-
-새로운 머신에서 AI 에이전트가 이 README만 보고 설치를 끝낼 수 있도록 명령을 그대로 적어둔다. **모든 명령은 idempotent** — 이미 설치되어 있으면 아무 것도 깨뜨리지 않고 통과한다.
+## 설치 옵션 (자세히)
 
 ### 사전 조건
 
-- `git`, `bash`, `python3 ≥ 3.8`이 PATH에 있어야 한다.
-- Claude Code를 쓴다면 `~/.claude/skills/` 디렉터리, Codex CLI를 쓴다면 `~/.codex/skills/` 디렉터리가 존재해야 한다. 없는 쪽은 자동으로 스킵된다.
+| OS | 필요한 것 |
+|----|-----------|
+| macOS | `git`, `bash`, `python3` (시스템 기본) |
+| Linux | `git`, `bash`, `python3` |
+| Windows | `git`, `python` (PATH에 등록), 그리고 심링크를 위해 **개발자 모드 활성화** *또는* PowerShell을 관리자로 실행. 심링크가 안 되면 자동으로 복사 모드로 폴백한다. |
 
-### 설치 순서
+Claude Code를 쓰면 `~/.claude/skills/`, Codex CLI를 쓰면 `~/.codex/skills/`가 있어야 한다. 없는 쪽은 자동으로 스킵된다 (양쪽 다 없으면 설치할 곳이 없으니 먼저 클라이언트를 설치하자).
+
+### 부트스트랩 환경 변수
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `HANDOFF_HOME` | `$HOME/.handoff` (Win: `%USERPROFILE%\.handoff`) | 레포 클론 위치 |
+| `HANDOFF_REPO` | `https://github.com/NewTurn2017/HandOff.git` | 다른 포크/미러 사용 시 변경 |
+| `HANDOFF_REF`  | `main` | 특정 태그/브랜치 고정 시 변경 |
+| `HANDOFF_HOOK` | (PowerShell 전용) `1`이면 훅 자동 등록 | bash 쪽은 `--hook` 인자 사용 |
+
+예시 — 다른 위치에 설치:
 
 ```bash
-# 1. 클론 (위치는 자유. 영구 보관할 곳을 권장)
-git clone https://github.com/NewTurn2017/HandOff.git ~/dev/HandOff
-cd ~/dev/HandOff
+HANDOFF_HOME=/opt/handoff curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash -s -- --hook
+```
 
-# 2. 심링크 설치 (+ SessionStart 훅 등록)
+### 수동 설치 (curl 안 쓰고 싶을 때)
+
+```bash
+git clone https://github.com/NewTurn2017/HandOff.git ~/.handoff
+cd ~/.handoff
 ./install.sh --hook
-
-# 3. 검증
-ls -l ~/.claude/skills/handoff-save ~/.claude/skills/handoff-load 2>/dev/null
-ls -l ~/.codex/skills/handoff-save  ~/.codex/skills/handoff-load  2>/dev/null
-bash skills/handoff-save/scripts/collect_meta.sh        # JSON 출력되면 OK
-python3 skills/handoff-load/scripts/find_candidates.py  # JSON 출력되면 OK
 ```
 
 ### `install.sh`가 하는 일
 
-1. `~/.claude/skills/handoff-{save,load}` → 이 레포의 `skills/handoff-{save,load}`로 심링크.
-2. `~/.codex/skills/handoff-{save,load}` → 동일하게 심링크.
-3. 같은 이름의 **실제 폴더/파일**이 이미 있으면 `*.backup-YYYYMMDD-HHmmss`로 백업한 뒤 링크로 교체. 같은 경로를 가리키는 심링크가 이미 있으면 그대로 둔다.
-4. `--hook`을 주면 `~/.claude/settings.json`에 SessionStart 훅을 idempotent하게 추가한다 (`scripts/register_session_hook.py`).
-
-### 옵션
+1. `~/.claude/skills/handoff-{save,load}` → 이 레포의 `skills/handoff-{save,load}` 심링크.
+2. `~/.codex/skills/handoff-{save,load}` → 동일.
+3. 같은 이름의 **실제 폴더/파일**이 이미 있으면 `*.backup-YYYYMMDD-HHmmss`로 백업 후 링크로 교체. 같은 경로를 가리키는 심링크면 그대로 둔다.
+4. `--hook`이면 `~/.claude/settings.json`의 `hooks.SessionStart`에 항목을 idempotent하게 추가.
 
 ```bash
-./install.sh                # ~/.claude/skills + ~/.codex/skills 양쪽 (훅은 등록 안 함)
+./install.sh                # 양쪽 디렉터리에 심링크 (훅 X)
 ./install.sh --hook         # 위 + SessionStart 훅 등록
 ./install.sh --claude       # ~/.claude/skills 만
 ./install.sh --codex        # ~/.codex/skills 만
-./install.sh --uninstall    # 이 레포가 만든 심링크만 제거 (백업 폴더는 그대로 둠)
+./install.sh --uninstall    # 이 레포가 만든 심링크만 제거 (백업은 유지)
 ```
 
 ### 백업 폴더 정리
 
-기존에 진짜 폴더로 깔려 있던 스킬이 있었다면 `*.backup-YYYYMMDD-HHmmss`로 옮겨진다. 이 레포 내용과 동일하다는 게 확인되면 안전하게 삭제 가능:
+기존에 *진짜 폴더*로 깔려 있던 스킬이 있었다면 `*.backup-YYYYMMDD-HHmmss`로 옮겨진다. 레포 내용과 동일하면 안전하게 삭제:
 
 ```bash
-diff -r ~/.claude/skills/handoff-save.backup-* skills/handoff-save && \
-  rm -rf ~/.claude/skills/handoff-save.backup-* ~/.claude/skills/handoff-load.backup-*
-diff -r ~/.codex/skills/handoff-save.backup-*  skills/handoff-save && \
-  rm -rf ~/.codex/skills/handoff-save.backup-*  ~/.codex/skills/handoff-load.backup-*
+diff -r ~/.claude/skills/handoff-save.backup-* "$HANDOFF_HOME/skills/handoff-save" && \
+  rm -rf ~/.claude/skills/handoff-*.backup-*
+diff -r ~/.codex/skills/handoff-save.backup-*  "$HANDOFF_HOME/skills/handoff-save" && \
+  rm -rf ~/.codex/skills/handoff-*.backup-*
 ```
 
 ### 업데이트
 
 ```bash
-cd ~/dev/HandOff && git pull
+cd "${HANDOFF_HOME:-$HOME/.handoff}" && git pull
 ```
 
 심링크는 그대로이므로 추가 작업 불필요. SKILL.md/스크립트 변경이 즉시 반영된다.
 
+curl 재실행도 가능 (idempotent — 같은 위치에 있으면 `git pull`만 한다):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash
+```
+
 ### 제거
 
 ```bash
-cd ~/dev/HandOff && ./install.sh --uninstall
+cd "${HANDOFF_HOME:-$HOME/.handoff}" && ./install.sh --uninstall
 ```
 
-훅을 제거하려면 `~/.claude/settings.json`의 `hooks.SessionStart`에서 `handoff-load/scripts/load_hook.sh`를 가리키는 항목을 직접 지운다.
+훅을 빼려면 `~/.claude/settings.json`의 `hooks.SessionStart`에서 `handoff-load/scripts/load_hook.sh`를 가리키는 항목을 직접 지운다.
 
 ---
 
