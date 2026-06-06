@@ -4,108 +4,173 @@
 
 set +e
 
-# Read hook payload from stdin (JSON). Extract cwd if present, otherwise use $PWD.
 input=$(cat 2>/dev/null || echo '{}')
-cwd=$(printf "%s" "$input" | python3 -c 'import json,sys; d=json.load(sys.stdin) if sys.stdin.isatty()==False else {}; print(d.get("cwd") or d.get("workspace",{}).get("current_dir") or "")' 2>/dev/null)
-[ -z "$cwd" ] && cwd="$PWD"
-cd "$cwd" 2>/dev/null || true
+HANDOFF_HOOK_INPUT="$input" python3 <<'PYEOF' 2>/dev/null || true
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
-ROOT="${HANDOFF_ROOT:-$HOME/.claude/handoff}"
+STALE_BLOCK_HOURS = 24 * 7
+CANONICAL_ROOT = Path.home() / ".handoff" / "sessions"
+LEGACY_ROOT = Path.home() / ".claude" / "handoff"
 
-# Compute project slug (mirror find_candidates.py logic)
-if top=$(git rev-parse --show-toplevel 2>/dev/null); then
-  base=$(basename "$top")
-else
-  base=$(basename "$cwd")
-fi
-slug=$(printf '%s' "$base" | tr -c '[:alnum:]._-' '_' | sed -E 's/_+/_/g; s/^_+|_+$//g')
-slug="${HANDOFF_SLUG:-$slug}"
 
-dir="$ROOT/$slug"
-[ -d "$dir" ] || exit 0
+def load_payload():
+    raw = os.environ.get("HANDOFF_HOOK_INPUT") or "{}"
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
 
-# Find latest handoff-*.md by mtime
-latest=$(ls -1t "$dir"/handoff-*.md 2>/dev/null | head -n 1)
-[ -z "$latest" ] && exit 0
-[ -f "$latest" ] || exit 0
 
-# Compute age in hours
-mtime=$(stat -f %m "$latest" 2>/dev/null || stat -c %Y "$latest" 2>/dev/null)
-now=$(date +%s)
-age_h=$(( (now - mtime) / 3600 ))
+def slug_for(cwd: Path) -> str:
+    if env := os.environ.get("HANDOFF_SLUG"):
+        return env
+    try:
+        top = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(cwd),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        base = Path(top).name
+    except Exception:
+        base = cwd.name
+    return re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9._-]", "_", base)).strip("_")
 
-# Skip if older than 7 days (>168h)
-[ "$age_h" -gt 168 ] && exit 0
 
-# Build preview using python (simpler frontmatter parsing)
-preview=$(python3 - "$latest" "$age_h" <<'PYEOF'
-import sys, re
-path, age_h = sys.argv[1], int(sys.argv[2])
-try:
-    text = open(path, encoding="utf-8", errors="replace").read()
-except Exception:
-    sys.exit(0)
+def roots():
+    values = []
+    if env_root := os.environ.get("HANDOFF_ROOT"):
+        values.append(Path(env_root).expanduser())
+    else:
+        values.append(CANONICAL_ROOT)
+    if extra := os.environ.get("HANDOFF_ROOTS"):
+        values.extend(Path(item).expanduser() for item in extra.split(os.pathsep) if item)
+    if not os.environ.get("HANDOFF_ROOT"):
+        values.append(LEGACY_ROOT)
 
-fm = {}
-if text.startswith("---"):
+    out = []
+    seen = set()
+    for root in values:
+        key = str(root)
+        if key not in seen:
+            out.append(root)
+            seen.add(key)
+    return out
+
+
+def parse_frontmatter(text: str):
+    if not text.startswith("---"):
+        return {}, text
     end = text.find("\n---", 3)
-    if end != -1:
-        for line in text[3:end].strip().splitlines():
-            m = re.match(r"^([A-Za-z_]+):\s*(.*)$", line)
-            if m:
-                fm[m.group(1)] = m.group(2).strip().strip("'\"")
-        text = text[end+4:]
+    if end == -1:
+        return {}, text
+    fm = {}
+    for line in text[3:end].strip().splitlines():
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$", line)
+        if match:
+            fm[match.group(1)] = match.group(2).strip().strip("'\"")
+    return fm, text[end + 4 :]
 
-def section(name):
+
+def section(text: str, name: str) -> str:
     pat = re.compile(rf"##\s+{re.escape(name)}\s*\n(.*?)(?=\n##\s|\Z)", re.S)
-    m = pat.search(text)
-    return m.group(1).strip() if m else ""
+    match = pat.search(text)
+    return match.group(1).strip() if match else ""
 
-next_prompt = section("이어갈 프롬프트 (복붙용)") or section("이어갈 프롬프트")
-next_steps = section("다음 단계")
-done_so_far = section("지금까지 한 일")
 
-age_label = f"{age_h}시간 전" if age_h < 24 else f"{age_h // 24}일 전"
-warn = " ⚠️ 24시간 이상 경과" if age_h >= 24 else ""
+def first_lines(value: str, limit: int):
+    return [line for line in value.splitlines() if line.strip()][:limit]
 
-out = []
-out.append(f"📂 이전 세션 핸드오프 발견: [{fm.get('project','?')}] {fm.get('branch','?')} · {age_label} 저장{warn}")
-out.append(f"파일: {path}")
-if done_so_far:
-    out.append("\n지금까지:")
-    for line in done_so_far.splitlines()[:5]:
-        out.append(line)
-if next_steps:
-    out.append("\n다음 단계:")
-    for line in next_steps.splitlines()[:3]:
-        out.append(line)
-if next_prompt:
-    out.append("\n이어갈 프롬프트:")
-    out.append(next_prompt)
-out.append("\n— 이어가시려면 그대로 진행하시고, 아니면 새 작업 지시를 입력하세요. (자동 실행하지 않습니다)")
-print("\n".join(out))
+
+def main() -> int:
+    payload = load_payload()
+    cwd_value = payload.get("cwd") or payload.get("workspace", {}).get("current_dir") or os.getcwd()
+    cwd = Path(cwd_value).expanduser()
+    if not cwd.exists():
+        cwd = Path.cwd()
+
+    slug = slug_for(cwd)
+    latest = None
+    for root in roots():
+        project_dir = root / slug
+        if not project_dir.is_dir():
+            continue
+        for path in project_dir.glob("handoff-*.md"):
+            if path.is_file() and (latest is None or path.stat().st_mtime > latest.stat().st_mtime):
+                latest = path
+
+    if latest is None:
+        return 0
+
+    mtime = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
+    now = datetime.now(timezone.utc)
+    age_h = int((now - mtime).total_seconds() // 3600)
+    if age_h > STALE_BLOCK_HOURS:
+        return 0
+
+    try:
+        raw = latest.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return 0
+
+    fm, body = parse_frontmatter(raw)
+    progress = section(body, "진행 상황") or section(body, "지금까지 한 일")
+    priorities = section(body, "우선순위 목록") or section(body, "다음 단계")
+    notes = section(body, "특이 사항")
+    history = section(body, "작업 환경 및 이력")
+    next_prompt = section(body, "이어갈 프롬프트 (복붙용)") or section(body, "이어갈 프롬프트")
+
+    age_label = f"{age_h}시간 전" if age_h < 24 else f"{age_h // 24}일 전"
+    warn = " ⚠️ 24시간 이상 경과" if age_h >= 24 else ""
+    runtime_agent = fm.get("runtimeAgent") or fm.get("agent") or "unknown"
+    branch = fm.get("branch", "?")
+    progress_percent = fm.get("progressPercent", "unknown")
+    worktree = fm.get("worktreeStatus", "unknown")
+    tests = fm.get("testStatus", "unknown")
+
+    lines = []
+    lines.append(f"📂 이전 세션 핸드오프 발견: [{fm.get('project','?')}] {branch} · {age_label} 저장 · {runtime_agent}{warn}")
+    lines.append(f"진행률: {progress_percent}% · 워크트리: {worktree} · 테스트: {tests}")
+    lines.append(f"경로: {fm.get('cwd', str(cwd))}")
+    lines.append(f"파일: {latest}")
+
+    if progress:
+        lines.append("\n진행 상황:")
+        lines.extend(first_lines(progress, 6))
+    if priorities:
+        lines.append("\n우선순위:")
+        lines.extend(first_lines(priorities, 6))
+    if notes:
+        lines.append("\n특이 사항:")
+        lines.extend(first_lines(notes, 5))
+    if history:
+        lines.append("\n작업 환경 및 이력:")
+        lines.extend(first_lines(history, 5))
+    if next_prompt:
+        lines.append("\n이어갈 프롬프트:")
+        lines.append(next_prompt)
+
+    lines.append("\n— 이어가시려면 그대로 진행하시고, 아니면 새 작업 지시를 입력하세요. (자동 실행하지 않습니다)")
+    preview = "\n".join(lines)
+    banner = lines[0] + "  ·  '이어가자' 또는 /handoff-load 로 복원"
+    out = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": preview,
+        },
+        "systemMessage": banner,
+    }
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+sys.exit(main())
 PYEOF
-)
-
-# Emit JSON so Claude Code shows a user-visible banner (systemMessage)
-# AND injects the full preview as additional context for the model.
-# Falls back to plain stdout if python is missing.
-if [ -n "$preview" ]; then
-  python3 - "$preview" <<'PYEOF' 2>/dev/null || printf '%s\n' "$preview"
-import json, sys
-preview = sys.argv[1]
-banner = next((ln for ln in preview.splitlines() if ln.startswith("📂")),
-              "📂 이전 세션 핸드오프 발견")
-banner += "  ·  '이어가자' 또는 /handoff-load 로 복원"
-out = {
-    "hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": preview,
-    },
-    "systemMessage": banner,
-}
-print(json.dumps(out, ensure_ascii=False))
-PYEOF
-fi
 
 exit 0

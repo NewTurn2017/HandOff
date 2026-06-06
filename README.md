@@ -1,14 +1,14 @@
 # HandOff
 
-> Claude Code & Codex CLI 세션을 마크다운 한 장으로 박제(save)하고, 다음 세션에서 그대로 이어가는(load) 한 쌍의 스킬.
+> Claude Code, Codex CLI, Gajae Code, OMX, WCC/Whale Code(DeepSeek) 세션을 하나의 통합 저장소에 저장(save)하고 다음 세션에서 이어가는(load) 스킬 세트.
 
-세션이 길어지면 컨텍스트 윈도우가 차거나, 모델/세션을 갈아엎거나, 그냥 하루를 마무리해야 한다. 그때마다 "어디까지 했더라"를 손으로 다시 정리하는 대신 **`/handoff-save`** 한 번으로 현재 상태와 *다음에 붙여넣을 프롬프트*까지 마크다운으로 떨어뜨리고, 새 세션에서 **`/handoff-load`**(또는 SessionStart 훅의 자동 미리보기)로 그대로 이어간다.
+세션이 길어지거나 모델/코딩 harness를 바꿀 때마다 현재 상태를 다시 설명하지 않도록 **`/handoff-save`** 한 번으로 진행률, 작업 이력, 우선순위, 주의 파일, 테스트 상태, 이어갈 프롬프트를 마크다운으로 저장한다. 새 세션에서는 **`/handoff-load`** 또는 SessionStart 훅 미리보기로 같은 상태를 복원한다.
 
-이 레포는 두 스킬의 **단일 출처(single source of truth)**다. `install.sh`가 `~/.claude/skills/`와 `~/.codex/skills/` 양쪽에 심볼릭 링크를 걸어주므로, 여기에서 한 번 수정하면 Claude Code와 Codex CLI 양쪽에 즉시 반영된다.
+핸드오프 문서는 모든 agent가 공유하는 기본 경로 **`~/.handoff/sessions/{project_slug}/`**에 저장된다. 예전 버전의 `~/.claude/handoff/{project_slug}/` 문서도 load 쪽에서 계속 읽는다.
 
 ---
 
-## TL;DR — 한 줄 설치
+## TL;DR — 설치
 
 ### macOS / Linux
 
@@ -16,7 +16,7 @@
 curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash
 ```
 
-SessionStart 훅까지 함께 등록하려면:
+SessionStart 훅까지 함께 등록:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash -s -- --hook
@@ -34,45 +34,38 @@ iwr -useb https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.p
 $env:HANDOFF_HOOK=1; iwr -useb https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.ps1 | iex
 ```
 
-### 검증
+설치 후 새 coding-agent 세션에서 다음 중 하나로 저장한다.
 
-```bash
-ls -l ~/.claude/skills/handoff-save ~/.claude/skills/handoff-load \
-       ~/.codex/skills/handoff-save  ~/.codex/skills/handoff-load
+```text
+/handoff-save
+/save_handoff_road
+핸드오프 저장해줘
+wcc handoff save
 ```
-
-네 줄 모두 `~/.handoff/skills/handoff-*` 심링크면 끝. Claude Code/Codex를 새 세션으로 띄우고 `/handoff-save` 또는 "핸드오프 저장해줘"를 호출하면 동작합니다.
 
 ---
 
-## 설치 옵션 (자세히)
+## 지원 환경과 설치 위치
 
-### 사전 조건
+`install.sh`는 존재하는 skill 디렉터리에만 심볼릭 링크를 만든다. 없는 agent는 자동으로 스킵된다.
 
-| OS | 필요한 것 |
-|----|-----------|
-| macOS | `git`, `bash`, `python3` (시스템 기본) |
-| Linux | `git`, `bash`, `python3` |
-| Windows | `git`, `python` (PATH에 등록), 그리고 심링크를 위해 **개발자 모드 활성화** *또는* PowerShell을 관리자로 실행. 심링크가 안 되면 자동으로 복사 모드로 폴백한다. |
+| Agent / alias | 기본 skill 경로 | hook settings |
+|---|---|---|
+| Claude Code | `~/.claude/skills` | `~/.claude/settings.json` |
+| Codex CLI | `~/.codex/skills` | 없음 |
+| Gajae Code | `~/.gajae/skills` | `~/.gajae/settings.json` |
+| GJC alias | `~/.gjc/skills` | `~/.gjc/settings.json` |
+| OMX | `~/.omx/skills` | `~/.omx/settings.json` |
+| WCC / Whale Code / DeepSeek | `~/.wcc/skills` | `~/.wcc/settings.json` |
 
-Claude Code를 쓰면 `~/.claude/skills/`, Codex CLI를 쓰면 `~/.codex/skills/`가 있어야 한다. 없는 쪽은 자동으로 스킵된다 (양쪽 다 없으면 설치할 곳이 없으니 먼저 클라이언트를 설치하자).
+설치되는 skill 이름/alias:
 
-### 부트스트랩 환경 변수
+- `handoff-save` → 원본 save skill
+- `handoff-load` → 원본 load skill
+- `save_handoff_road` → `handoff-save` alias
+- `load_handoff_road` → `handoff-load` alias
 
-| 변수 | 기본값 | 설명 |
-|------|--------|------|
-| `HANDOFF_HOME` | `$HOME/.handoff` (Win: `%USERPROFILE%\.handoff`) | 레포 클론 위치 |
-| `HANDOFF_REPO` | `https://github.com/NewTurn2017/HandOff.git` | 다른 포크/미러 사용 시 변경 |
-| `HANDOFF_REF`  | `main` | 특정 태그/브랜치 고정 시 변경 |
-| `HANDOFF_HOOK` | (PowerShell 전용) `1`이면 훅 자동 등록 | bash 쪽은 `--hook` 인자 사용 |
-
-예시 — 다른 위치에 설치:
-
-```bash
-HANDOFF_HOME=/opt/handoff curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash -s -- --hook
-```
-
-### 수동 설치 (curl 안 쓰고 싶을 때)
+수동 설치:
 
 ```bash
 git clone https://github.com/NewTurn2017/HandOff.git ~/.handoff
@@ -80,104 +73,112 @@ cd ~/.handoff
 ./install.sh --hook
 ```
 
-### `install.sh`가 하는 일
-
-1. `~/.claude/skills/handoff-{save,load}` → 이 레포의 `skills/handoff-{save,load}` 심링크.
-2. `~/.codex/skills/handoff-{save,load}` → 동일.
-3. 같은 이름의 **실제 폴더/파일**이 이미 있으면 `*.backup-YYYYMMDD-HHmmss`로 백업 후 링크로 교체. 같은 경로를 가리키는 심링크면 그대로 둔다.
-4. `--hook`이면 `~/.claude/settings.json`의 `hooks.SessionStart`에 항목을 idempotent하게 추가.
+대상 제한:
 
 ```bash
-./install.sh                # 양쪽 디렉터리에 심링크 (훅 X)
-./install.sh --hook         # 위 + SessionStart 훅 등록
-./install.sh --claude       # ~/.claude/skills 만
-./install.sh --codex        # ~/.codex/skills 만
-./install.sh --uninstall    # 이 레포가 만든 심링크만 제거 (백업은 유지)
+./install.sh --claude
+./install.sh --codex
+./install.sh --gajae
+./install.sh --omx
+./install.sh --wcc
+./install.sh --uninstall
 ```
 
-### 백업 폴더 정리
+---
 
-기존에 *진짜 폴더*로 깔려 있던 스킬이 있었다면 `*.backup-YYYYMMDD-HHmmss`로 옮겨진다. 레포 내용과 동일하면 안전하게 삭제:
+## 핵심 변경점
 
-```bash
-diff -r ~/.claude/skills/handoff-save.backup-* "$HANDOFF_HOME/skills/handoff-save" && \
-  rm -rf ~/.claude/skills/handoff-*.backup-*
-diff -r ~/.codex/skills/handoff-save.backup-*  "$HANDOFF_HOME/skills/handoff-save" && \
-  rm -rf ~/.codex/skills/handoff-*.backup-*
+### 저장 확인 단계 제거
+
+`handoff-save`는 더 이상 매번 "이대로 저장하시겠습니까?"를 묻지 않는다. 기본 추천 경로는 즉시 저장이다. 사용자가 명시적으로 preview/review를 요청하거나, 저장이 위험한 상태(메타데이터 수집 실패, 알려진 미마스킹 secret 등)일 때만 멈춘다.
+
+### 상세한 handoff 문서
+
+저장 문서는 다음 정보를 필수로 포함한다.
+
+- **진행 상황**: 완료된 작업, 진행 중인 작업, 진행률(%), 산정 근거
+- **현재 상태**: 수정 중 파일, 미완 작업, 워크트리 clean/dirty 상태
+- **우선순위 목록**: P0/P1/P2 다음 작업, 관련 파일, 완료 조건, 바로 붙여넣을 프롬프트
+- **특이 사항**: 건드리면 안 되는 파일, 현재 버그, 임시 해결책, 관련 파일, 위험한 가정
+- **작업 환경 및 이력**: coding harness, cwd, git toplevel, branch, remote, HEAD, 마지막 커밋, 최근 커밋, 테스트 결과
+- **이어갈 프롬프트**: 새 세션에 그대로 붙여넣으면 즉시 이어갈 수 있는 자기완결 프롬프트
+
+### 통합 저장소와 agent 판별
+
+기본 저장소는 agent별 dotdir가 아니라 `~/.handoff/sessions`다.
+
+```text
+~/.handoff/sessions/{project_slug}/handoff-YYYYMMDD-HHmmss.md
+~/.handoff/sessions/{project_slug}/latest.md
 ```
 
-### 업데이트
+`collect_meta.sh`는 저장 시점의 runtime agent를 best-effort로 기록한다.
 
-```bash
-cd "${HANDOFF_HOME:-$HOME/.handoff}" && git pull
-```
+- 명시 override: `HANDOFF_AGENT=gajae-code /hand-off-save`
+- 자동 감지 후보: `claude-code`, `codex-cli`, `gajae-code`, `omx`, `wcc-whale-deepseek`, `unknown`
+- load 시 저장 agent와 현재 agent가 다르면 경고해서 Claude/Codex/Gajae/OMX/WCC 사이 이동을 명확히 보여준다.
 
-심링크는 그대로이므로 추가 작업 불필요. SKILL.md/스크립트 변경이 즉시 반영된다.
+### 자동 compact / commit 설계
 
-curl 재실행도 가능 (idempotent — 같은 위치에 있으면 `git pull`만 한다):
+context 사용량이 50% 이상임을 harness가 제공하거나, 사용자가 "compact", "자동 커밋", "auto handoff"를 요청하면 `handoff-save`는 자동 저장 흐름을 우선한다.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.sh | bash
-```
+자동 checkpoint commit은 다음 조건이 모두 참일 때만 수행하도록 설계되어 있다.
 
-### 제거
+1. 사용자 또는 프로젝트가 auto-compact를 허용했다.
+2. 변경 사항이 현재 작업 범위이며 protected/user-owned 파일을 포함하지 않는다.
+3. secret이 추적 변경이나 handoff에 남아 있지 않다.
+4. 필요한 focused verification이 통과했거나, 실행하지 못한 이유가 handoff에 기록된다.
+5. protected branch가 아니거나 사용자가 허용했다.
 
-```bash
-cd "${HANDOFF_HOME:-$HOME/.handoff}" && ./install.sh --uninstall
-```
-
-훅을 빼려면 `~/.claude/settings.json`의 `hooks.SessionStart`에서 `handoff-load/scripts/load_hook.sh`를 가리키는 항목을 직접 지운다.
+조건이 하나라도 실패하면 commit하지 않고 handoff에 `autoCommit: skipped`와 이유를 기록한다.
 
 ---
 
 ## 두 스킬 개요
 
-### `handoff-save` — 세션 박제
+### `handoff-save` — 세션 저장
 
-- **트리거 (한국어)**: "핸드오프 저장", "박제해줘", "여기까지 저장", "세션 마무리", "다음 세션에 이어갈 수 있게 저장"
-- **트리거 (영어)**: `/handoff-save`, "save handoff", "wrap up session", "checkpoint this session"
-- **선택 인자**: `/handoff-save <한 줄 메모>` — `nextPromptShort` 힌트로 들어간다.
-- **수집**: cwd / git toplevel / 브랜치 / origin URL / HEAD short SHA / 미커밋 파일 수 / 최근 커밋 3개
-- **요약 섹션**: 지금까지 한 일 / 현재 상태(미커밋·미완) / 다음 단계 / **이어갈 프롬프트(복붙용)**
-- **자동 마스킹**: API 키(`sk-…`, `pk_…`), GitHub 토큰(`ghp_…`/`gho_…`), Slack 토큰(`xox[baprs]-…`), AWS(`AKIA…`), Google(`AIza…`), Bearer, JWT, `*_KEY=` / `*_TOKEN=` / `*_SECRET=` / `*_PASSWORD=` 류 env 값
-- **저장 위치**: `~/.claude/handoff/{project_slug}/handoff-YYYYMMDD-HHmmss.md` + `latest.md` 심링크
+- **트리거(한국어)**: "핸드오프 저장", "박제해줘", "여기까지 저장", "세션 마무리", "다음 세션에 이어갈 수 있게 저장"
+- **트리거(영어/alias)**: `/handoff-save`, `/save_handoff_road`, `save_handoff_road`, `wcc handoff save`, "save handoff", "wrap up session", "checkpoint this session"
+- **수집**: cwd, git toplevel, branch, remote, HEAD, worktree 상태, 최근 커밋, 마지막 커밋, runtime agent, 테스트 상태
+- **저장 위치**: `${HANDOFF_ROOT:-$HOME/.handoff/sessions}/{project_slug}/`
+- **자동 마스킹**: API key, GitHub/Slack/AWS/Google token, Bearer, JWT, `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`류 env 값
 
 ### `handoff-load` — 세션 복원
 
-- **트리거 (한국어)**: "핸드오프 로드", "이어가자", "지난번 어디까지 했지", "이어서 작업"
-- **트리거 (영어)**: `/handoff-load`, "resume last session", "load handoff", "continue from last handoff"
-- **후보 처리**: 0개 → 안내 / 1개 → 그대로 / 2+개 → `AskUserQuestion`로 선택지 제시
-- **신선도**: ≥24h → 경고, ≥7d → 명시적 확인 요구
-- **자동 실행 안 함**: 컨텍스트만 복원하고 사용자가 수락("ㄱㄱ", "이어가자")해야 다음 단계로 넘어간다.
-- **SessionStart 훅** *(선택)*: 새 세션이 뜰 때 7일 이내 핸드오프가 있으면 5줄 미리보기를 추가 컨텍스트로 주입한다.
-
-스킬 본문은 [`skills/handoff-save/SKILL.md`](skills/handoff-save/SKILL.md), [`skills/handoff-load/SKILL.md`](skills/handoff-load/SKILL.md) 참고.
+- **트리거(한국어)**: "핸드오프 로드", "이어가자", "지난번 어디까지 했지", "이어서 작업"
+- **트리거(영어/alias)**: `/handoff-load`, `/load_handoff_road`, `load_handoff_road`, `wcc handoff load`, "resume last session", "continue from last handoff"
+- **후보 처리**: 0개 → 안내 / 1개 → 그대로 / 2+개 → 선택지 제시
+- **검색 경로**: `HANDOFF_ROOT` 또는 `~/.handoff/sessions`, `HANDOFF_ROOTS`, legacy `~/.claude/handoff`
+- **신선도**: ≥24h 경고, ≥7d 명시적 확인
+- **자동 실행 안 함**: load는 context만 복원한다. 사용자가 "ㄱㄱ", "이어가자" 등으로 진행 방향을 확인해야 실행한다.
 
 ---
 
 ## 레포 구조
 
-```
+```text
 HandOff/
 ├── README.md
-├── LICENSE                          # MIT
-├── install.sh                       # 심링크 설치/제거 + 훅 등록
+├── AGENTS.md                         # AI assistant repository guidance
+├── LICENSE                           # MIT
+├── bootstrap.sh                      # macOS/Linux bootstrap
+├── bootstrap.ps1                     # Windows bootstrap
+├── install.sh                        # skill 링크/제거 + hook 등록
 ├── scripts/
-│   └── register_session_hook.py     # ~/.claude/settings.json에 SessionStart 훅 idempotent 등록
+│   └── register_session_hook.py      # Claude-compatible SessionStart hook 등록
 └── skills/
     ├── handoff-save/
-    │   ├── SKILL.md                 # 워크플로우 (트리거/단계/스키마/근거)
+    │   ├── SKILL.md                  # 저장 workflow / schema / auto-compact 규칙
     │   └── scripts/
-    │       ├── collect_meta.sh      # cwd·git 메타데이터 → JSON
-    │       └── redact.py            # 시크릿 마스킹 (stdin → stdout)
+    │       ├── collect_meta.sh       # cwd·git·runtime metadata → JSON
+    │       └── redact.py             # secret masking (stdin → stdout)
     └── handoff-load/
-        ├── SKILL.md
+        ├── SKILL.md                  # 복원 workflow / 후보 선택 / agent mismatch 안내
         └── scripts/
-            ├── find_candidates.py   # 프로젝트 슬러그로 핸드오프 후보 나열 (JSON)
-            └── load_hook.sh         # SessionStart 훅 본체 (silent-fail, 항상 exit 0)
+            ├── find_candidates.py    # 통합/legacy root 후보 나열 (JSON)
+            └── load_hook.sh          # SessionStart hook 본체 (silent-fail, exit 0)
 ```
-
-핸드오프 *문서* 자체는 이 레포에 들어가지 않는다 — 작업 결과물은 `~/.claude/handoff/{project_slug}/`에 쌓이고, 깃 추적 대상이 아니다.
 
 ---
 
@@ -191,88 +192,100 @@ gitToplevel: /Users/me/dev/my-project
 branch: feat/payments
 gitRemote: https://github.com/me/my-project.git
 gitHead: a1b2c3d
+runtimeAgent: gajae-code
+agentHome: /Users/me/.gajae
+handoffRoot: /Users/me/.handoff/sessions
 savedAt: 2026-04-26T22:14:31+09:00
-nextPromptShort: 결제 모듈 webhook 검증부터
+progressPercent: 67
+worktreeStatus: dirty, 3 changed files
+testStatus: passed — pytest tests/payments
+nextPromptShort: 결제 webhook 검증부터
+autoCommit: skipped
+autoCommitSha:
 ---
 
 ## 프로젝트 / 브랜치
-…
+...
 
-## 지금까지 한 일
-- …
+## 진행 상황
+- 진행률: 67% (완료 4 / 전체 6)
+- 완료된 작업:
+  - ...
+- 진행 중인 작업:
+  - ...
 
 ## 현재 상태 (수정 중 파일 / 미완 작업)
-- …
+...
 
-## 다음 단계
-1. …
+## 우선순위 목록
+### P0 — webhook 검증 마무리
+- 목표: ...
+- 관련 파일: `src/payments/webhook.ts`
+- 완료 조건: ...
+- 다음 프롬프트: ...
+
+## 특이 사항
+- 건드리면 안 되는 파일: ...
+- 알려진 버그 / 임시 해결책: ...
+
+## 작업 환경 및 이력
+- 런타임/에이전트: gajae-code
+- 브랜치/HEAD: feat/payments / a1b2c3d
+- 마지막 커밋: ...
+- 테스트 상태: ...
 
 ## 이어갈 프롬프트 (복붙용)
-> …
+...
 ```
-
-`이어갈 프롬프트`가 핵심 산출물이다. 새 세션에 그대로 붙여넣었을 때 추가 질문 없이 바로 일을 이어갈 수 있을 만큼 자기완결적이어야 한다.
-
----
-
-## SessionStart 훅 상세
-
-`install.sh --hook`을 실행하면 `~/.claude/settings.json`에 다음 블록이 idempotent하게 추가된다:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          { "type": "command", "command": "$HOME/.claude/skills/handoff-load/scripts/load_hook.sh" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-훅은 항상 `exit 0` — 어떤 이유로든 실패해도 세션 시작을 막지 않는다. 7일을 넘긴 핸드오프는 미리보기에서 자동 제외된다.
 
 ---
 
 ## 환경 변수
 
 | 변수 | 기본값 | 효과 |
-|------|--------|------|
-| `HANDOFF_ROOT` | `~/.claude/handoff` | 핸드오프 파일 저장 루트 |
-| `HANDOFF_SLUG` | git toplevel basename (없으면 cwd basename) | 프로젝트 슬러그 강제 지정 (워크트리 등에서 유용) |
-| `CLAUDE_SKILLS_DIR` | `~/.claude/skills` | `install.sh`가 링크할 Claude Code 스킬 디렉터리 |
-| `CODEX_SKILLS_DIR` | `~/.codex/skills` | `install.sh`가 링크할 Codex 스킬 디렉터리 |
-| `CLAUDE_SETTINGS` | `~/.claude/settings.json` | `register_session_hook.py`가 수정할 settings 파일 |
+|---|---|---|
+| `HANDOFF_ROOT` | `~/.handoff/sessions` | handoff 파일 저장/우선 검색 root |
+| `HANDOFF_ROOTS` | 없음 | load가 추가로 검색할 root 목록 (`:` 또는 Windows `;` 구분) |
+| `HANDOFF_SLUG` | git toplevel basename, 없으면 cwd basename | 프로젝트 slug override |
+| `HANDOFF_AGENT` | 자동 감지 | 저장 시 runtime agent override |
+| `HANDOFF_TEST_STATUS` | `not recorded` | metadata JSON의 테스트 상태 힌트 |
+| `HANDOFF_HOME` | `~/.handoff` | bootstrap clone 위치 |
+| `HANDOFF_REPO` | GitHub 원본 | fork/mirror 사용 |
+| `HANDOFF_REF` | `main` | branch/tag 고정 |
+| `CLAUDE_SKILLS_DIR` | `~/.claude/skills` | Claude skill 링크 위치 |
+| `CODEX_SKILLS_DIR` | `~/.codex/skills` | Codex skill 링크 위치 |
+| `GAJAE_SKILLS_DIR` | `~/.gajae/skills` | Gajae skill 링크 위치 |
+| `GJC_SKILLS_DIR` | `~/.gjc/skills` | GJC alias skill 링크 위치 |
+| `OMX_SKILLS_DIR` | `~/.omx/skills` | OMX skill 링크 위치 |
+| `WCC_SKILLS_DIR` | `~/.wcc/skills` | WCC/Whale/DeepSeek skill 링크 위치 |
+| `CLAUDE_SETTINGS`, `GAJAE_SETTINGS`, `GJC_SETTINGS`, `OMX_SETTINGS`, `WCC_SETTINGS` | 각 agent settings.json | hook 등록 위치 override |
 
 ---
 
 ## 개발 워크플로우
 
-이 레포가 Claude Code/Codex 양쪽이 실제로 로드하는 파일의 단일 출처이므로, 별도 빌드/배포가 없다.
-
-1. `skills/handoff-*/SKILL.md` 또는 `skills/handoff-*/scripts/*`를 수정한다.
-2. 수정한 그 순간 `~/.claude/skills/handoff-*`와 `~/.codex/skills/handoff-*`에 즉시 반영된다 (심링크).
-3. 새 Claude Code/Codex 세션을 띄워 변경 동작을 확인한다.
-4. 커밋 & 푸시.
-
-### 수동 스모크 테스트
+별도 build/package step은 없다. 이 레포가 각 agent skill dir로 symlink되므로 `SKILL.md`나 script를 수정하면 즉시 반영된다.
 
 ```bash
-# 1. cwd/git 메타데이터 수집
-bash skills/handoff-save/scripts/collect_meta.sh | jq
+# metadata smoke test
+bash skills/handoff-save/scripts/collect_meta.sh
 
-# 2. 시크릿 마스킹
-echo 'TEST_API_KEY=sk-abcdefghijklmnopqrstuvwx' | python3 skills/handoff-save/scripts/redact.py
+# redaction smoke test
+printf 'TEST_API_KEY=sk-abcdefghijklmnopqrstuvwx\n' | python3 skills/handoff-save/scripts/redact.py
 
-# 3. 후보 조회
-python3 skills/handoff-load/scripts/find_candidates.py | jq
+# candidate listing smoke test
+python3 skills/handoff-load/scripts/find_candidates.py
 
-# 4. SessionStart 훅 dry-run (현재 cwd에 핸드오프가 있어야 출력됨)
+# hook dry-run; 현재 cwd slug에 fresh handoff가 있으면 JSON 출력
 echo '{}' | bash skills/handoff-load/scripts/load_hook.sh
+
+# installer smoke test with temp dirs
+mkdir -p /tmp/handoff-claude/skills /tmp/handoff-gajae/skills
+CLAUDE_SKILLS_DIR=/tmp/handoff-claude/skills \
+GAJAE_SKILLS_DIR=/tmp/handoff-gajae/skills \
+CLAUDE_SETTINGS=/tmp/handoff-claude/settings.json \
+GAJAE_SETTINGS=/tmp/handoff-gajae/settings.json \
+./install.sh --hook
 ```
 
 ---

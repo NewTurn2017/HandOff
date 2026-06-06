@@ -9,6 +9,8 @@
 #   HANDOFF_HOME      Install destination. Default: $HOME/.handoff
 #   HANDOFF_REPO      Git URL. Default: https://github.com/NewTurn2017/HandOff.git
 #   HANDOFF_REF       Git ref to check out. Default: main
+#   HANDOFF_ROOT      Shared handoff storage. Default: $HOME/.handoff/sessions
+#   *_SKILLS_DIR      Override agent skill dirs (CLAUDE, CODEX, GAJAE, GJC, OMX, WCC)
 
 set -eo pipefail
 
@@ -84,6 +86,7 @@ blue "[3/3] done."
 green "✓ HandOff installed at $DEST"
 echo
 echo "Next steps:"
-echo "  - Start a new Claude Code or Codex session in any project."
-echo "  - Try: /handoff-save  or  '핸드오프 저장해줘'"
+echo "  - Start a new Claude/Codex/Gajae/OMX/WCC session in any project."
+echo "  - Try: /handoff-save, /save_handoff_road, or '핸드오프 저장해줘'"
+echo "  - Handoffs are stored in: \${HANDOFF_ROOT:-\$HOME/.handoff/sessions}"
 echo "  - Update later: cd \"$DEST\" && git pull"

@@ -8,14 +8,14 @@
 #   HANDOFF_HOME   Install destination. Default: $HOME\.handoff
 #   HANDOFF_REPO   Git URL. Default: https://github.com/NewTurn2017/HandOff.git
 #   HANDOFF_REF    Branch / tag. Default: main
-#   HANDOFF_HOOK   Set to 1 to also register the SessionStart hook in ~/.claude/settings.json
+#   HANDOFF_HOOK   Set to 1 to also register SessionStart hooks where supported
 #
 # Notes:
-#   - Requires git and python3 in PATH.
-#   - Symlink creation requires either Developer Mode enabled (Settings → For developers)
+#   - Requires git and python in PATH.
+#   - Symlink creation requires either Developer Mode enabled (Settings -> For developers)
 #     or running PowerShell as Administrator. Otherwise this script falls back to copying.
-#   - The SessionStart hook (load_hook.sh) runs through bash. On Windows, Claude Code's
-#     hook runner needs Git Bash or WSL on PATH; otherwise the hook silently no-ops.
+#   - SessionStart hooks run load_hook.sh through bash. On Windows, the hook runner needs
+#     Git Bash or WSL on PATH; otherwise the hook silently no-ops.
 
 $ErrorActionPreference = 'Stop'
 
@@ -56,13 +56,23 @@ if (Test-Path (Join-Path $Dest '.git')) {
   Ok "  cloned."
 }
 
-# 2. Symlink into Claude Code / Codex skill dirs
-Info "[2/3] linking skills into ~/.claude/skills and ~/.codex/skills"
+# 2. Symlink/copy into supported coding-agent skill dirs
+Info "[2/3] linking skills into supported agent skill dirs"
 
-$Skills = @('handoff-save', 'handoff-load')
+$SkillLinks = @(
+  @{ Link = 'handoff-save'; Source = 'handoff-save' },
+  @{ Link = 'handoff-load'; Source = 'handoff-load' },
+  @{ Link = 'save_handoff_road'; Source = 'handoff-save' },
+  @{ Link = 'load_handoff_road'; Source = 'handoff-load' }
+)
+
 $Targets = @(
-  (Join-Path $HOME '.claude\skills'),
-  (Join-Path $HOME '.codex\skills')
+  @{ Name = 'claude'; Dir = if ($env:CLAUDE_SKILLS_DIR) { $env:CLAUDE_SKILLS_DIR } else { Join-Path $HOME '.claude\skills' }; Settings = if ($env:CLAUDE_SETTINGS) { $env:CLAUDE_SETTINGS } else { Join-Path $HOME '.claude\settings.json' } },
+  @{ Name = 'codex';  Dir = if ($env:CODEX_SKILLS_DIR)  { $env:CODEX_SKILLS_DIR  } else { Join-Path $HOME '.codex\skills'  }; Settings = '' },
+  @{ Name = 'gajae';  Dir = if ($env:GAJAE_SKILLS_DIR)  { $env:GAJAE_SKILLS_DIR  } else { Join-Path $HOME '.gajae\skills'  }; Settings = if ($env:GAJAE_SETTINGS) { $env:GAJAE_SETTINGS } else { Join-Path $HOME '.gajae\settings.json' } },
+  @{ Name = 'gjc';    Dir = if ($env:GJC_SKILLS_DIR)    { $env:GJC_SKILLS_DIR    } else { Join-Path $HOME '.gjc\skills'    }; Settings = if ($env:GJC_SETTINGS) { $env:GJC_SETTINGS } else { Join-Path $HOME '.gjc\settings.json' } },
+  @{ Name = 'omx';    Dir = if ($env:OMX_SKILLS_DIR)    { $env:OMX_SKILLS_DIR    } else { Join-Path $HOME '.omx\skills'    }; Settings = if ($env:OMX_SETTINGS) { $env:OMX_SETTINGS } else { Join-Path $HOME '.omx\settings.json' } },
+  @{ Name = 'wcc';    Dir = if ($env:WCC_SKILLS_DIR)    { $env:WCC_SKILLS_DIR    } else { Join-Path $HOME '.wcc\skills'    }; Settings = if ($env:WCC_SETTINGS) { $env:WCC_SETTINGS } else { Join-Path $HOME '.wcc\settings.json' } }
 )
 
 function Try-Symlink($Path, $Target) {
@@ -74,22 +84,36 @@ function Try-Symlink($Path, $Target) {
   }
 }
 
+function Hook-Cmd($Dir) {
+  $normalized = $Dir.Replace('\', '/')
+  $homeNormalized = $HOME.Replace('\', '/')
+  if ($normalized.StartsWith($homeNormalized)) {
+    return ('$HOME' + $normalized.Substring($homeNormalized.Length) + '/handoff-load/scripts/load_hook.sh')
+  }
+  return ($normalized + '/handoff-load/scripts/load_hook.sh')
+}
+
 $FellBackToCopy = $false
-foreach ($dir in $Targets) {
+foreach ($target in $Targets) {
+  $targetName = $target['Name']
+  $dir = $target['Dir']
   if (-not (Test-Path $dir)) {
-    Write-Host "  skip: $dir does not exist" -ForegroundColor DarkGray
+    Write-Host "  skip: $targetName ($dir does not exist)" -ForegroundColor DarkGray
     continue
   }
-  foreach ($skill in $Skills) {
-    $linkPath = Join-Path $dir $skill
-    $srcPath  = Join-Path $Dest "skills\$skill"
+
+  foreach ($skill in $SkillLinks) {
+    $linkName = $skill['Link']
+    $sourceName = $skill['Source']
+    $linkPath = Join-Path $dir $linkName
+    $srcPath  = Join-Path $Dest (Join-Path 'skills' $sourceName)
 
     if (Test-Path $linkPath) {
       $item = Get-Item $linkPath -Force
       if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
         $existingTarget = (Get-Item $linkPath -Force).Target
         if ($existingTarget -and ($existingTarget | Where-Object { $_ -eq $srcPath })) {
-          Write-Host "  ok:   $linkPath (already linked)" -ForegroundColor DarkGray
+          Write-Host "  ok:   $targetName $linkName (already linked)" -ForegroundColor DarkGray
           continue
         }
       }
@@ -100,31 +124,37 @@ foreach ($dir in $Targets) {
     }
 
     if (Try-Symlink -Path $linkPath -Target $srcPath) {
-      Write-Host "  link: $linkPath -> $srcPath" -ForegroundColor Green
+      Write-Host "  link: $targetName $linkName -> $srcPath" -ForegroundColor Green
     } else {
       Warn "  fallback to copy (symlink permission denied; enable Developer Mode for symlinks)"
       Copy-Item -Recurse -Force -Path $srcPath -Destination $linkPath
-      Write-Host "  copy: $linkPath" -ForegroundColor Green
+      Write-Host "  copy: $targetName $linkName" -ForegroundColor Green
       $FellBackToCopy = $true
     }
   }
+
+  $settings = $target['Settings']
+  if ($WantHook -and $settings) {
+    $hookCmd = Hook-Cmd $dir
+    python (Join-Path $Dest 'scripts\register_session_hook.py') $settings $hookCmd
+  }
 }
 
-# 3. Optional hook registration
+# 3. Finish
 if ($WantHook) {
-  Info "[3/3] registering SessionStart hook"
-  python (Join-Path $Dest 'scripts\register_session_hook.py')
+  Info "[3/3] hook registration attempted for supported settings files"
 } else {
-  Info "[3/3] skipping hook registration (set `\$env:HANDOFF_HOOK=1` to enable)"
+  Info "[3/3] skipping hook registration (set `$env:HANDOFF_HOOK=1 to enable)"
 }
 
 Ok "done. HandOff installed at $Dest"
+Ok "canonical handoff storage: `$env:HANDOFF_ROOT or $HOME\.handoff\sessions"
 if ($FellBackToCopy) {
   Warn "Some links fell back to copy mode. To get true symlinks (so 'git pull' updates instantly),"
   Warn "enable Developer Mode (Settings -> For developers) and re-run the installer."
 }
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  - Start a new Claude Code or Codex session in any project."
-Write-Host "  - Try: /handoff-save  or  '핸드오프 저장해줘'"
+Write-Host "  - Start a new Claude/Codex/Gajae/OMX/WCC session in any project."
+Write-Host "  - Try: /handoff-save, /save_handoff_road, or '핸드오프 저장해줘'"
 Write-Host "  - Update later: cd `"$Dest`"; git pull"
