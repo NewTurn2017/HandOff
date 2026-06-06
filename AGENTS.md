@@ -68,7 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/NewTurn2017/HandOff/main/bootstrap.
 - Required local tools: `git`, `bash`, and `python3` on macOS/Linux; `git` and `python` on Windows.
 - Windows symlinks require Developer Mode or admin PowerShell; otherwise `bootstrap.ps1` copies skills.
 - Windows hooks still run `load_hook.sh`, so Git Bash or WSL must be on PATH for hook execution.
-- Supported default skill dirs: `~/.claude/skills`, `~/.codex/skills`, `~/.gajae/skills`, `~/.gjc/skills`, `~/.omx/skills`, `~/.wcc/skills`.
+- Supported default skill dirs: `~/.claude/skills`, `~/.codex/skills`, official GJC/Gajae `~/.gjc/agent/skills` plus command wrappers in `~/.gjc/agent/commands`, `~/.omx/skills`, and `~/.wcc/skills`.
 - `.gitignore` intentionally ignores `.DS_Store`, `*.backup-*`, `__pycache__/`, and `*.pyc`.
 
 ## Testing & QA
@@ -79,4 +79,4 @@ Recommended QA:
 - Redaction changes: pipe representative secrets through `python3 skills/handoff-save/scripts/redact.py`.
 - Candidate discovery: create temporary handoffs under `HANDOFF_ROOT`/`HANDOFF_SLUG` and run `python3 skills/handoff-load/scripts/find_candidates.py`.
 - Hook changes: run `echo '{"cwd":"/path/to/project"}' | HANDOFF_ROOT=/tmp/... bash skills/handoff-load/scripts/load_hook.sh`; verify hit and miss cases exit `0`.
-- Installer changes: test with temporary `CLAUDE_SKILLS_DIR`, `GAJAE_SKILLS_DIR`, `WCC_SKILLS_DIR`, and settings paths before touching real user dirs.
+- Installer changes: test with temporary `CLAUDE_SKILLS_DIR`, `GAJAE_SKILLS_DIR`, `GAJAE_COMMANDS_DIR`, `WCC_SKILLS_DIR`, and settings paths before touching real user dirs.

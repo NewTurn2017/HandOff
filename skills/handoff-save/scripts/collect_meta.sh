@@ -68,7 +68,7 @@ fi
 case "$runtime_agent" in
   claude-code) agent_home="$HOME/.claude" ;;
   codex-cli) agent_home="$HOME/.codex" ;;
-  gajae-code) agent_home="$HOME/.gajae" ;;
+  gajae-code) agent_home="$HOME/.gjc/agent" ;;
   omx) agent_home="$HOME/.omx" ;;
   wcc-whale-deepseek) agent_home="$HOME/.wcc" ;;
   *) agent_home="" ;;

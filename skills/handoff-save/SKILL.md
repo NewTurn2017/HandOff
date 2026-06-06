@@ -24,7 +24,7 @@ Run `scripts/collect_meta.sh` from the current working directory. It returns JSO
 bash "${CLAUDE_PLUGIN_ROOT:-${HANDOFF_SKILL_ROOT:-$HOME/.handoff/skills}}/handoff-save/scripts/collect_meta.sh"
 ```
 
-If the skill root variable is unknown, locate the installed skill directory for the active harness (`~/.claude/skills`, `~/.codex/skills`, `~/.gajae/skills`, `~/.omx/skills`, `~/.wcc/skills`) and run the script from there.
+If the skill root variable is unknown, locate the installed skill directory for the active harness (`~/.claude/skills`, `~/.codex/skills`, official GJC/Gajae `~/.gjc/agent/skills`, `~/.omx/skills`, `~/.wcc/skills`) and run the script from there.
 
 ### Step 2: Summarize the session in the enhanced schema
 **Type**: prompt
@@ -173,7 +173,7 @@ nextPromptShort: {one-line hint, ≤ 80 chars}
 ## Why these design choices
 
 - **No save confirmation by default** — checkpointing should be fast; the handoff file is non-destructive and timestamped.
-- **Unified root across agents** — `.claude`, `.codex`, `.gajae`, `.omx`, and `.wcc` installs all read/write the same `~/.handoff/sessions` documents.
+- **Unified root across agents** — `.claude`, `.codex`, `.gjc/agent`, `.omx`, and `.wcc` installs all read/write the same `~/.handoff/sessions` documents.
 - **Specific prompts beat generic summaries** — every priority item includes a paste-ready prompt so the next agent can act immediately.
 - **Redaction before write** — handoff files live outside git but may still be shared accidentally.
 - **Auto-commit is guarded** — compact commits are useful, but the skill records skip reasons instead of committing unsafe or user-owned changes.

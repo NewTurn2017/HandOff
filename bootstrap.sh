@@ -11,6 +11,7 @@
 #   HANDOFF_REF       Git ref to check out. Default: main
 #   HANDOFF_ROOT      Shared handoff storage. Default: $HOME/.handoff/sessions
 #   *_SKILLS_DIR      Override agent skill dirs (CLAUDE, CODEX, GAJAE, GJC, OMX, WCC)
+#   *_COMMANDS_DIR    Override GJC/Gajae command wrapper dirs (GAJAE, GJC)
 
 set -eo pipefail
 

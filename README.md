@@ -37,33 +37,39 @@ $env:HANDOFF_HOOK=1; iwr -useb https://raw.githubusercontent.com/NewTurn2017/Han
 설치 후 새 coding-agent 세션에서 다음 중 하나로 저장한다.
 
 ```text
+# Claude/Codex/OMX/WCC 스타일 direct command
 /handoff-save
 /save_handoff_road
+
+# Gajae Code/GJC native skill command
+/skill:handoff-save
+
+# 자연어 트리거
 핸드오프 저장해줘
 wcc handoff save
 ```
+
+GJC는 공식적으로 skill을 `/skill:<name>` 형태로 호출한다. 편의를 위해 installer가 `~/.gjc/agent/commands/`에 `/handoff-save`, `/handoff-load`, `/save_handoff_road`, `/load_handoff_road` wrapper command도 함께 설치한다.
 
 ---
 
 ## 지원 환경과 설치 위치
 
-`install.sh`는 존재하는 skill 디렉터리에만 심볼릭 링크를 만든다. 없는 agent는 자동으로 스킵된다.
+`install.sh`는 존재하는 skill 디렉터리에 심볼릭 링크를 만든다. Gajae/GJC는 공식 경로인 `~/.gjc/agent/skills`와 command wrapper 경로 `~/.gjc/agent/commands`를 사용한다.
 
 | Agent / alias | 기본 skill 경로 | hook settings |
 |---|---|---|
 | Claude Code | `~/.claude/skills` | `~/.claude/settings.json` |
 | Codex CLI | `~/.codex/skills` | 없음 |
-| Gajae Code | `~/.gajae/skills` | `~/.gajae/settings.json` |
-| GJC alias | `~/.gjc/skills` | `~/.gjc/settings.json` |
+| Gajae Code / GJC | `~/.gjc/agent/skills` | `~/.gjc/agent/settings.json` |
 | OMX | `~/.omx/skills` | `~/.omx/settings.json` |
 | WCC / Whale Code / DeepSeek | `~/.wcc/skills` | `~/.wcc/settings.json` |
 
-설치되는 skill 이름/alias:
+설치되는 skill 이름과 command alias:
 
-- `handoff-save` → 원본 save skill
-- `handoff-load` → 원본 load skill
-- `save_handoff_road` → `handoff-save` alias
-- `load_handoff_road` → `handoff-load` alias
+- skill: `handoff-save`, `handoff-load`
+- GJC native command wrapper: `/handoff-save`, `/handoff-load`, `/save_handoff_road`, `/load_handoff_road`
+- GJC canonical skill invocation: `/skill:handoff-save`, `/skill:handoff-load`
 
 수동 설치:
 
@@ -193,7 +199,7 @@ branch: feat/payments
 gitRemote: https://github.com/me/my-project.git
 gitHead: a1b2c3d
 runtimeAgent: gajae-code
-agentHome: /Users/me/.gajae
+agentHome: /Users/me/.gjc/agent
 handoffRoot: /Users/me/.handoff/sessions
 savedAt: 2026-04-26T22:14:31+09:00
 progressPercent: 67
@@ -254,11 +260,13 @@ autoCommitSha:
 | `HANDOFF_REF` | `main` | branch/tag 고정 |
 | `CLAUDE_SKILLS_DIR` | `~/.claude/skills` | Claude skill 링크 위치 |
 | `CODEX_SKILLS_DIR` | `~/.codex/skills` | Codex skill 링크 위치 |
-| `GAJAE_SKILLS_DIR` | `~/.gajae/skills` | Gajae skill 링크 위치 |
-| `GJC_SKILLS_DIR` | `~/.gjc/skills` | GJC alias skill 링크 위치 |
+| `GAJAE_SKILLS_DIR` | `~/.gjc/agent/skills` | Gajae/GJC skill 링크 위치 |
+| `GJC_SKILLS_DIR` | `~/.gjc/agent/skills` | GJC alias skill 링크 위치 |
+| `GAJAE_COMMANDS_DIR` | `~/.gjc/agent/commands` | Gajae/GJC direct slash command wrapper 위치 |
+| `GJC_COMMANDS_DIR` | `~/.gjc/agent/commands` | GJC alias command wrapper 위치 |
 | `OMX_SKILLS_DIR` | `~/.omx/skills` | OMX skill 링크 위치 |
 | `WCC_SKILLS_DIR` | `~/.wcc/skills` | WCC/Whale/DeepSeek skill 링크 위치 |
-| `CLAUDE_SETTINGS`, `GAJAE_SETTINGS`, `GJC_SETTINGS`, `OMX_SETTINGS`, `WCC_SETTINGS` | 각 agent settings.json | hook 등록 위치 override |
+| `CLAUDE_SETTINGS`, `GAJAE_SETTINGS`, `GJC_SETTINGS`, `OMX_SETTINGS`, `WCC_SETTINGS` | 각 agent settings.json (`GAJAE`/`GJC` 기본값은 `~/.gjc/agent/settings.json`) | hook 등록 위치 override |
 
 ---
 

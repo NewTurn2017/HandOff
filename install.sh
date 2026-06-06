@@ -16,16 +16,19 @@ SKILLS_SRC="$REPO_ROOT/skills"
 
 CLAUDE_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 CODEX_DIR="${CODEX_SKILLS_DIR:-$HOME/.codex/skills}"
-GAJAE_DIR="${GAJAE_SKILLS_DIR:-$HOME/.gajae/skills}"
-GJC_DIR="${GJC_SKILLS_DIR:-$HOME/.gjc/skills}"
+GAJAE_DIR="${GAJAE_SKILLS_DIR:-$HOME/.gjc/agent/skills}"
+GJC_DIR="${GJC_SKILLS_DIR:-$HOME/.gjc/agent/skills}"
 OMX_DIR="${OMX_SKILLS_DIR:-$HOME/.omx/skills}"
 WCC_DIR="${WCC_SKILLS_DIR:-$HOME/.wcc/skills}"
 
 CLAUDE_SETTINGS_PATH="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
-GAJAE_SETTINGS_PATH="${GAJAE_SETTINGS:-$HOME/.gajae/settings.json}"
-GJC_SETTINGS_PATH="${GJC_SETTINGS:-$HOME/.gjc/settings.json}"
+GAJAE_SETTINGS_PATH="${GAJAE_SETTINGS:-$HOME/.gjc/agent/settings.json}"
+GJC_SETTINGS_PATH="${GJC_SETTINGS:-$HOME/.gjc/agent/settings.json}"
 OMX_SETTINGS_PATH="${OMX_SETTINGS:-$HOME/.omx/settings.json}"
 WCC_SETTINGS_PATH="${WCC_SETTINGS:-$HOME/.wcc/settings.json}"
+GAJAE_COMMANDS_DIR="${GAJAE_COMMANDS_DIR:-$HOME/.gjc/agent/commands}"
+GJC_COMMANDS_DIR="${GJC_COMMANDS_DIR:-$HOME/.gjc/agent/commands}"
+
 
 DO_HOOK=0
 DO_UNINSTALL=0
@@ -114,6 +117,60 @@ $(skill_links)
 EOF
 }
 
+native_command_templates() {
+  cat <<'EOF'
+handoff-save|handoff-save|Save a HandOff checkpoint through the handoff-save skill
+handoff-load|handoff-load|Load the latest HandOff checkpoint through the handoff-load skill
+save_handoff_road|handoff-save|Alias for saving a HandOff checkpoint
+load_handoff_road|handoff-load|Alias for loading a HandOff checkpoint
+EOF
+}
+
+install_native_commands() {
+  local name="$1"
+  local commands_dir="$2"
+  local agent_dir="${commands_dir%/commands}"
+  [ -d "$agent_dir" ] || { echo "skip: $name commands ($agent_dir does not exist)"; return 0; }
+  mkdir -p "$commands_dir"
+
+  while IFS='|' read -r command_name skill_name description; do
+    [ -n "$command_name" ] || continue
+    local file="$commands_dir/$command_name.md"
+    if [ -e "$file" ] && ! grep -q '^x-handoff-managed: true$' "$file" 2>/dev/null; then
+      local backup="${file}.backup-$(date +%Y%m%d-%H%M%S)"
+      echo "move: $file → $backup"
+      mv "$file" "$backup"
+    fi
+    cat >"$file" <<EOF
+---
+description: $description
+x-handoff-managed: true
+---
+
+/skill:$skill_name {{ARGUMENTS}}
+EOF
+    echo "cmd:  $name /$command_name → /skill:$skill_name"
+  done <<EOF
+$(native_command_templates)
+EOF
+}
+
+uninstall_native_commands() {
+  local name="$1"
+  local commands_dir="$2"
+
+  while IFS='|' read -r command_name _skill_name _description; do
+    [ -n "$command_name" ] || continue
+    local file="$commands_dir/$command_name.md"
+    if [ -f "$file" ] && grep -q '^x-handoff-managed: true$' "$file" 2>/dev/null; then
+      rm "$file"
+      echo "rm:   $name /$command_name"
+    fi
+  done <<EOF
+$(native_command_templates)
+EOF
+}
+
 hook_cmd_for() {
   local target_dir="$1"
   if [ "${target_dir#$HOME/}" != "$target_dir" ]; then
@@ -127,11 +184,17 @@ handle_target() {
   local name="$1"
   local dir="$2"
   local settings="$3"
+  local commands_dir="${4:-}"
   enabled "$name" || return 0
 
   if [ "$DO_UNINSTALL" -eq 1 ]; then
     unlink_from "$name" "$dir"
+    [ -n "$commands_dir" ] && uninstall_native_commands "$name" "$commands_dir"
     return 0
+  fi
+
+  if [ ! -d "$dir" ] && { [ "$name" = "gajae" ] || [ "$name" = "gjc" ]; } && [ -d "${dir%/skills}" ]; then
+    mkdir -p "$dir"
   fi
 
   if [ ! -d "$dir" ]; then
@@ -140,6 +203,7 @@ handle_target() {
   fi
 
   link_into "$name" "$dir"
+  [ -n "$commands_dir" ] && install_native_commands "$name" "$commands_dir"
   if [ "$DO_HOOK" -eq 1 ] && [ -n "$settings" ]; then
     local hook_cmd
     hook_cmd="$(hook_cmd_for "$dir")"
@@ -149,8 +213,8 @@ handle_target() {
 
 handle_target "claude" "$CLAUDE_DIR" "$CLAUDE_SETTINGS_PATH"
 handle_target "codex" "$CODEX_DIR" ""
-handle_target "gajae" "$GAJAE_DIR" "$GAJAE_SETTINGS_PATH"
-handle_target "gjc" "$GJC_DIR" "$GJC_SETTINGS_PATH"
+handle_target "gajae" "$GAJAE_DIR" "$GAJAE_SETTINGS_PATH" "$GAJAE_COMMANDS_DIR"
+handle_target "gjc" "$GJC_DIR" "$GJC_SETTINGS_PATH" "$GJC_COMMANDS_DIR"
 handle_target "omx" "$OMX_DIR" "$OMX_SETTINGS_PATH"
 handle_target "wcc" "$WCC_DIR" "$WCC_SETTINGS_PATH"
 
@@ -161,5 +225,5 @@ fi
 
 echo
 echo "done. canonical handoff storage: ${HANDOFF_ROOT:-$HOME/.handoff/sessions}"
-echo "linked aliases: handoff-save, handoff-load, save_handoff_road, load_handoff_road"
+echo "linked skills and GJC slash wrappers: handoff-save, handoff-load, save_handoff_road, load_handoff_road"
 echo "supported targets: claude codex gajae gjc omx wcc"

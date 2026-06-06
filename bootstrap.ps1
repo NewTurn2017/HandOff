@@ -66,11 +66,18 @@ $SkillLinks = @(
   @{ Link = 'load_handoff_road'; Source = 'handoff-load' }
 )
 
+$CommandLinks = @(
+  @{ Name = 'handoff-save'; Skill = 'handoff-save'; Description = 'Save a HandOff checkpoint through the handoff-save skill' },
+  @{ Name = 'handoff-load'; Skill = 'handoff-load'; Description = 'Load the latest HandOff checkpoint through the handoff-load skill' },
+  @{ Name = 'save_handoff_road'; Skill = 'handoff-save'; Description = 'Alias for saving a HandOff checkpoint' },
+  @{ Name = 'load_handoff_road'; Skill = 'handoff-load'; Description = 'Alias for loading a HandOff checkpoint' }
+)
+
 $Targets = @(
   @{ Name = 'claude'; Dir = if ($env:CLAUDE_SKILLS_DIR) { $env:CLAUDE_SKILLS_DIR } else { Join-Path $HOME '.claude\skills' }; Settings = if ($env:CLAUDE_SETTINGS) { $env:CLAUDE_SETTINGS } else { Join-Path $HOME '.claude\settings.json' } },
   @{ Name = 'codex';  Dir = if ($env:CODEX_SKILLS_DIR)  { $env:CODEX_SKILLS_DIR  } else { Join-Path $HOME '.codex\skills'  }; Settings = '' },
-  @{ Name = 'gajae';  Dir = if ($env:GAJAE_SKILLS_DIR)  { $env:GAJAE_SKILLS_DIR  } else { Join-Path $HOME '.gajae\skills'  }; Settings = if ($env:GAJAE_SETTINGS) { $env:GAJAE_SETTINGS } else { Join-Path $HOME '.gajae\settings.json' } },
-  @{ Name = 'gjc';    Dir = if ($env:GJC_SKILLS_DIR)    { $env:GJC_SKILLS_DIR    } else { Join-Path $HOME '.gjc\skills'    }; Settings = if ($env:GJC_SETTINGS) { $env:GJC_SETTINGS } else { Join-Path $HOME '.gjc\settings.json' } },
+  @{ Name = 'gajae';  Dir = if ($env:GAJAE_SKILLS_DIR)  { $env:GAJAE_SKILLS_DIR  } else { Join-Path $HOME '.gjc\agent\skills' }; Commands = if ($env:GAJAE_COMMANDS_DIR) { $env:GAJAE_COMMANDS_DIR } else { Join-Path $HOME '.gjc\agent\commands' }; Settings = if ($env:GAJAE_SETTINGS) { $env:GAJAE_SETTINGS } else { Join-Path $HOME '.gjc\agent\settings.json' } },
+  @{ Name = 'gjc';    Dir = if ($env:GJC_SKILLS_DIR)    { $env:GJC_SKILLS_DIR    } else { Join-Path $HOME '.gjc\agent\skills' }; Commands = if ($env:GJC_COMMANDS_DIR) { $env:GJC_COMMANDS_DIR } else { Join-Path $HOME '.gjc\agent\commands' }; Settings = if ($env:GJC_SETTINGS) { $env:GJC_SETTINGS } else { Join-Path $HOME '.gjc\agent\settings.json' } },
   @{ Name = 'omx';    Dir = if ($env:OMX_SKILLS_DIR)    { $env:OMX_SKILLS_DIR    } else { Join-Path $HOME '.omx\skills'    }; Settings = if ($env:OMX_SETTINGS) { $env:OMX_SETTINGS } else { Join-Path $HOME '.omx\settings.json' } },
   @{ Name = 'wcc';    Dir = if ($env:WCC_SKILLS_DIR)    { $env:WCC_SKILLS_DIR    } else { Join-Path $HOME '.wcc\skills'    }; Settings = if ($env:WCC_SETTINGS) { $env:WCC_SETTINGS } else { Join-Path $HOME '.wcc\settings.json' } }
 )
@@ -93,10 +100,51 @@ function Hook-Cmd($Dir) {
   return ($normalized + '/handoff-load/scripts/load_hook.sh')
 }
 
+function Install-NativeCommands($TargetName, $CommandsDir) {
+  if (-not $CommandsDir) { return }
+  $agentDir = Split-Path -Parent $CommandsDir
+  if (-not (Test-Path $agentDir)) {
+    Write-Host "  skip: $TargetName commands ($agentDir does not exist)" -ForegroundColor DarkGray
+    return
+  }
+  New-Item -ItemType Directory -Force -Path $CommandsDir | Out-Null
+  foreach ($command in $CommandLinks) {
+    $commandName = $command['Name']
+    $skillName = $command['Skill']
+    $description = $command['Description']
+    $filePath = Join-Path $CommandsDir "$commandName.md"
+    if (Test-Path $filePath) {
+      $existing = Get-Content -Raw -Path $filePath
+      if ($existing -notmatch '(?m)^x-handoff-managed: true$') {
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $backup = "$filePath.backup-$stamp"
+        Write-Host "  move: $filePath -> $backup"
+        Move-Item -Path $filePath -Destination $backup -Force
+      }
+    }
+    $content = @"
+---
+description: $description
+x-handoff-managed: true
+---
+
+/skill:$skillName {{ARGUMENTS}}
+"@
+    Set-Content -Path $filePath -Value $content -Encoding UTF8
+    Write-Host "  cmd:  $TargetName /$commandName -> /skill:$skillName"
+  }
+}
+
 $FellBackToCopy = $false
 foreach ($target in $Targets) {
   $targetName = $target['Name']
   $dir = $target['Dir']
+  if ((-not (Test-Path $dir)) -and (($targetName -eq 'gajae') -or ($targetName -eq 'gjc'))) {
+    $agentDir = Split-Path -Parent $dir
+    if (Test-Path $agentDir) {
+      New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+  }
   if (-not (Test-Path $dir)) {
     Write-Host "  skip: $targetName ($dir does not exist)" -ForegroundColor DarkGray
     continue
@@ -131,6 +179,11 @@ foreach ($target in $Targets) {
       Write-Host "  copy: $targetName $linkName" -ForegroundColor Green
       $FellBackToCopy = $true
     }
+  }
+
+  $commandsDir = $target['Commands']
+  if ($commandsDir) {
+    Install-NativeCommands $targetName $commandsDir
   }
 
   $settings = $target['Settings']
