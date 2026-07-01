@@ -115,7 +115,6 @@ cd ~/.handoff
 
 ```text
 ~/.handoff/sessions/{project_slug}/handoff-YYYYMMDD-HHmmss.md
-~/.handoff/sessions/{project_slug}/latest.md
 ```
 
 `collect_meta.sh`는 저장 시점의 runtime agent를 best-effort로 기록한다.
@@ -123,20 +122,6 @@ cd ~/.handoff
 - 명시 override: `HANDOFF_AGENT=gajae-code /hand-off-save`
 - 자동 감지 후보: `claude-code`, `codex-cli`, `gajae-code`, `omx`, `wcc-whale-deepseek`, `unknown`
 - load 시 저장 agent와 현재 agent가 다르면 경고해서 Claude/Codex/Gajae/OMX/WCC 사이 이동을 명확히 보여준다.
-
-### 자동 compact / commit 설계
-
-context 사용량이 50% 이상임을 harness가 제공하거나, 사용자가 "compact", "자동 커밋", "auto handoff"를 요청하면 `handoff-save`는 자동 저장 흐름을 우선한다.
-
-자동 checkpoint commit은 다음 조건이 모두 참일 때만 수행하도록 설계되어 있다.
-
-1. 사용자 또는 프로젝트가 auto-compact를 허용했다.
-2. 변경 사항이 현재 작업 범위이며 protected/user-owned 파일을 포함하지 않는다.
-3. secret이 추적 변경이나 handoff에 남아 있지 않다.
-4. 필요한 focused verification이 통과했거나, 실행하지 못한 이유가 handoff에 기록된다.
-5. protected branch가 아니거나 사용자가 허용했다.
-
-조건이 하나라도 실패하면 commit하지 않고 handoff에 `autoCommit: skipped`와 이유를 기록한다.
 
 ---
 
@@ -175,7 +160,7 @@ HandOff/
 │   └── register_session_hook.py      # Claude-compatible SessionStart hook 등록
 └── skills/
     ├── handoff-save/
-    │   ├── SKILL.md                  # 저장 workflow / schema / auto-compact 규칙
+    │   ├── SKILL.md                  # 저장 workflow / schema
     │   └── scripts/
     │       ├── collect_meta.sh       # cwd·git·runtime metadata → JSON
     │       └── redact.py             # secret masking (stdin → stdout)
@@ -206,8 +191,6 @@ progressPercent: 67
 worktreeStatus: dirty, 3 changed files
 testStatus: passed — pytest tests/payments
 nextPromptShort: 결제 webhook 검증부터
-autoCommit: skipped
-autoCommitSha:
 ---
 
 ## 프로젝트 / 브랜치
@@ -252,7 +235,7 @@ autoCommitSha:
 |---|---|---|
 | `HANDOFF_ROOT` | `~/.handoff/sessions` | handoff 파일 저장/우선 검색 root |
 | `HANDOFF_ROOTS` | 없음 | load가 추가로 검색할 root 목록 (`:` 또는 Windows `;` 구분) |
-| `HANDOFF_SLUG` | git toplevel basename, 없으면 cwd basename | 프로젝트 slug override |
+| `HANDOFF_SLUG` | git toplevel basename, 없으면 cwd basename | 프로젝트 slug override (`[^A-Za-z0-9._-]` → `_`, 앞뒤 `_` 제거, 빈 값은 `project`) |
 | `HANDOFF_AGENT` | 자동 감지 | 저장 시 runtime agent override |
 | `HANDOFF_TEST_STATUS` | `not recorded` | metadata JSON의 테스트 상태 힌트 |
 | `HANDOFF_HOME` | `~/.handoff` | bootstrap clone 위치 |

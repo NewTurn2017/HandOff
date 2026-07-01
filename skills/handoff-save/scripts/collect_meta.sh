@@ -41,8 +41,9 @@ else
   project_slug=$(basename "$cwd")
 fi
 
-project_slug=$(printf '%s' "$project_slug" | tr -c '[:alnum:]._-' '_' | sed -E 's/_+/_/g; s/^_+|_+$//g')
-project_slug="${HANDOFF_SLUG:-$project_slug}"
+project_slug=$(
+  RAW_PROJECT_SLUG="${HANDOFF_SLUG:-$project_slug}" python3 -c 'import os,re; slug=re.sub(r"[^A-Za-z0-9._-]", "_", os.environ.get("RAW_PROJECT_SLUG", "")).strip("_"); print(slug or "project")'
+)
 
 parent_process=$(ps -p "${PPID:-0}" -o comm= 2>/dev/null | tr -d '\n' || echo "")
 

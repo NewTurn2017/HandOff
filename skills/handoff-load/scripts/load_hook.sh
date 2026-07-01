@@ -27,20 +27,26 @@ def load_payload():
         return {}
 
 
+def normalize_slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", value).strip("_")
+    return slug or "project"
+
+
 def slug_for(cwd: Path) -> str:
     if env := os.environ.get("HANDOFF_SLUG"):
-        return env
-    try:
-        top = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(cwd),
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        base = Path(top).name
-    except Exception:
-        base = cwd.name
-    return re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9._-]", "_", base)).strip("_")
+        base = env
+    else:
+        try:
+            top = subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=str(cwd),
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+            base = Path(top).name
+        except Exception:
+            base = cwd.name
+    return normalize_slug(base)
 
 
 def roots():
@@ -88,6 +94,18 @@ def first_lines(value: str, limit: int):
     return [line for line in value.splitlines() if line.strip()][:limit]
 
 
+def parse_saved_at(value: str):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def main() -> int:
     payload = load_payload()
     cwd_value = payload.get("cwd") or payload.get("workspace", {}).get("current_dir") or os.getcwd()
@@ -97,20 +115,32 @@ def main() -> int:
 
     slug = slug_for(cwd)
     latest = None
+    latest_saved_at = None
     for root in roots():
         project_dir = root / slug
         if not project_dir.is_dir():
             continue
         for path in project_dir.glob("handoff-*.md"):
-            if path.is_file() and (latest is None or path.stat().st_mtime > latest.stat().st_mtime):
+            if not path.is_file():
+                continue
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            fm, _body = parse_frontmatter(raw)
+            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            saved_at = parse_saved_at(fm.get("savedAt", "")) or mtime
+            if latest is None or saved_at > latest_saved_at:
                 latest = path
+                latest_saved_at = saved_at
 
     if latest is None:
         return 0
 
-    mtime = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
+    if latest_saved_at is None:
+        latest_saved_at = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
     now = datetime.now(timezone.utc)
-    age_h = int((now - mtime).total_seconds() // 3600)
+    age_h = int((now - latest_saved_at).total_seconds() // 3600)
     if age_h > STALE_BLOCK_HOURS:
         return 0
 

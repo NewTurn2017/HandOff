@@ -21,13 +21,36 @@ description: This skill should be used when the user asks to "핸드오프 로�
 ### Step 1: Locate candidate handoffs
 **Type**: script
 
-Run `scripts/find_candidates.py` to list handoffs for the current project:
+Run `scripts/find_candidates.py` to list handoffs for the current project. Resolve script paths relative to this `SKILL.md` directory (`handoff-load/`) first; use installed fallback locations such as `$HOME/.handoff/skills/handoff-load` only when the skill root is unknown.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT:-${HANDOFF_SKILL_ROOT:-$HOME/.handoff/skills}}/handoff-load/scripts/find_candidates.py"
+skill_root=""
+for candidate in \
+  "${HANDOFF_LOAD_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:+$HANDOFF_SKILL_ROOT/handoff-load}" \
+  "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/handoff-load}" \
+  "$(pwd)" \
+  "$(pwd)/skills/handoff-load" \
+  "$HOME/.handoff/skills/handoff-load" \
+  "$HOME/.claude/skills/handoff-load" \
+  "$HOME/.codex/skills/handoff-load" \
+  "$HOME/.gjc/agent/skills/handoff-load" \
+  "$HOME/.omx/skills/handoff-load" \
+  "$HOME/.wcc/skills/handoff-load"; do
+  if [ -n "$candidate" ] && [ -f "$candidate/scripts/find_candidates.py" ]; then
+    skill_root="$candidate"
+    break
+  fi
+done
+if [ -z "$skill_root" ]; then
+  echo "handoff-load skill root not found" >&2
+  exit 1
+fi
+python3 "$skill_root/scripts/find_candidates.py"
 ```
 
-It prints JSON: `{ "project_slug": ..., "handoff_roots": [...], "handoff_dir": ..., "candidates": [{"path", "root", "saved_at", "age_hours", "branch", "runtime_agent", "progress_percent", "next_prompt_short"}] }`. Candidates are sorted most-recent first.
+It prints JSON: `{ "project_slug": ..., "handoff_roots": [...], "handoff_dir": ..., "candidates": [{"path", "root", "saved_at", "age_hours", "branch", "runtime_agent", "progress_percent", "next_prompt_short"}] }`. Candidates are sorted most-recent first by frontmatter `savedAt`; file mtime is used only when `savedAt` is missing or unparsable.
 
 Default search roots:
 1. `${HANDOFF_ROOT}` when set, otherwise `~/.handoff/sessions`
@@ -39,7 +62,7 @@ Default search roots:
 
 - 0 candidates → tell the user: "이 프로젝트에 저장된 핸드오프가 없어요. 먼저 `/handoff-save`를 실행해주세요." and stop.
 - 1 candidate → use it directly.
-- 2+ candidates → present candidates via `AskUserQuestion`. Each option label should include age, branch, runtime agent, progress, and `next_prompt_short`. Always include a cancel option.
+- 2+ candidates → present a numbered list and wait for the user to choose. Each item should include age, branch, runtime agent, progress, and `next_prompt_short`. Include a cancel/skip option. If the active harness provides an interactive question tool, you may use it, but do not require a specific tool name.
 
 If the chosen handoff is older than 7 days, ask the user to confirm before loading. For 24h+ handoffs, warn but do not block.
 
@@ -49,8 +72,9 @@ If the chosen handoff is older than 7 days, ask the user to confirm before loadi
 1. Read the chosen file.
 2. Verify cwd matches `gitToplevel` (or saved `cwd` if not a git repo). Warn on mismatch.
 3. Verify current branch matches saved `branch`. Warn but proceed; cross-branch continuation may be intentional.
-4. Compare saved `runtimeAgent` with the current coding harness. If different, call it out clearly so the user knows the handoff moved across Claude/Codex/Gajae/OMX/WCC/DeepSeek.
-5. Summarize the enhanced schema in this format:
+4. Compare saved `gitHead` with `git rev-parse --short HEAD`, and saved `worktreeStatus` with `git status --short --branch`. If either differs, summarize the saved value and current value for the user before continuing. Do not mutate the worktree.
+5. Compare saved `runtimeAgent` with the current coding harness. If different, call it out clearly so the user knows the handoff moved across Claude/Codex/Gajae/OMX/WCC/DeepSeek.
+6. Summarize the enhanced schema in this format:
 
 ```text
 📂 [{project}] {branch} · {age} 전 저장 · {runtimeAgent}
@@ -97,7 +121,7 @@ Do NOT auto-execute the next prompt solely because a handoff was found. The save
 | Storage root | `~/.handoff/sessions/` | Set `HANDOFF_ROOT` env var |
 | Additional read roots | empty | Set `HANDOFF_ROOTS` using the OS path separator |
 | Legacy root | `~/.claude/handoff/` | Automatic fallback when `HANDOFF_ROOT` is not set |
-| Project slug | basename of git toplevel (or cwd) | Override with `HANDOFF_SLUG` env var |
+| Project slug | basename of git toplevel (or cwd), normalized with `[^A-Za-z0-9._-]` → `_`, trim `_`, fallback `project` | Override with `HANDOFF_SLUG` env var |
 | Runtime agent | best-effort from frontmatter/current env | Override save-side with `HANDOFF_AGENT` |
 | Stale threshold (warn) | 24 hours | Edit `STALE_WARN_HOURS` in `scripts/find_candidates.py` |
 | Stale threshold (require confirm) | 7 days | Edit `STALE_BLOCK_HOURS` in `scripts/find_candidates.py` |

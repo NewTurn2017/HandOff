@@ -2,3 +2,5 @@
 *.backup-*
 __pycache__/
 *.pyc
+.omx/
+.senior-mode/

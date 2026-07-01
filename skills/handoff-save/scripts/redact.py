@@ -5,11 +5,14 @@ import sys
 
 PATTERNS = [
     # API keys / tokens (long alphanumeric with common prefixes)
+    (re.compile(r'(github_pat_[A-Za-z0-9_]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
+    (re.compile(r'((?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
+    (re.compile(r'(sk-ant-[A-Za-z0-9_-]{20,})'), '[REDACTED_KEY]'),
     (re.compile(r'(sk-[A-Za-z0-9_-]{20,})'), '[REDACTED_KEY]'),
     (re.compile(r'(pk_[A-Za-z0-9_-]{20,})'), '[REDACTED_KEY]'),
     (re.compile(r'(ghp_[A-Za-z0-9]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
     (re.compile(r'(gho_[A-Za-z0-9]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
-    (re.compile(r'(xox[baprs]-[A-Za-z0-9-]{10,})'), '[REDACTED_SLACK_TOKEN]'),
+    (re.compile(r'(xox[abprs]-[A-Za-z0-9-]{10,})'), '[REDACTED_SLACK_TOKEN]'),
     (re.compile(r'(AIza[0-9A-Za-z_-]{30,})'), '[REDACTED_GOOGLE_KEY]'),
     (re.compile(r'(AKIA[0-9A-Z]{16})'), '[REDACTED_AWS_KEY]'),
     # Bearer tokens

@@ -18,13 +18,36 @@ The optional argument is a free-form note (e.g., `/handoff-save 내일은 결제
 ### Step 1: Collect session metadata
 **Type**: script
 
-Run `scripts/collect_meta.sh` from the current working directory. It returns JSON with project slug, unified handoff root, cwd, git/worktree metadata, recent commits, dirty-file count, detected coding harness, and optional test status.
+Run `scripts/collect_meta.sh` from the current working directory. Resolve script paths relative to this `SKILL.md` directory (`handoff-save/`) first; use installed fallback locations such as `$HOME/.handoff/skills/handoff-save` only when the skill root is unknown. It returns JSON with project slug, unified handoff root, cwd, git/worktree metadata, recent commits, dirty-file count, detected coding harness, and optional test status.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:-${HANDOFF_SKILL_ROOT:-$HOME/.handoff/skills}}/handoff-save/scripts/collect_meta.sh"
+skill_root=""
+for candidate in \
+  "${HANDOFF_SAVE_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:+$HANDOFF_SKILL_ROOT/handoff-save}" \
+  "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/handoff-save}" \
+  "$(pwd)" \
+  "$(pwd)/skills/handoff-save" \
+  "$HOME/.handoff/skills/handoff-save" \
+  "$HOME/.claude/skills/handoff-save" \
+  "$HOME/.codex/skills/handoff-save" \
+  "$HOME/.gjc/agent/skills/handoff-save" \
+  "$HOME/.omx/skills/handoff-save" \
+  "$HOME/.wcc/skills/handoff-save"; do
+  if [ -n "$candidate" ] && [ -f "$candidate/scripts/collect_meta.sh" ]; then
+    skill_root="$candidate"
+    break
+  fi
+done
+if [ -z "$skill_root" ]; then
+  echo "handoff-save skill root not found" >&2
+  exit 1
+fi
+bash "$skill_root/scripts/collect_meta.sh"
 ```
 
-If the skill root variable is unknown, locate the installed skill directory for the active harness (`~/.claude/skills`, `~/.codex/skills`, official GJC/Gajae `~/.gjc/agent/skills`, `~/.omx/skills`, `~/.wcc/skills`) and run the script from there.
+If the harness exposes the path of this `SKILL.md`, set `HANDOFF_SAVE_SKILL_ROOT` to its directory and the code block above will use that as the first source of truth.
 
 ### Step 2: Summarize the session in the enhanced schema
 **Type**: prompt
@@ -57,41 +80,87 @@ Only stop before writing if:
 ### Step 4: Redact sensitive values
 **Type**: script
 
-Pipe the assembled markdown through `scripts/redact.py`. It masks API keys, tokens, env-var assignments, JWTs, Bearer tokens, and common provider keys. The script reads stdin and writes redacted markdown to stdout.
+Pipe the assembled markdown through `scripts/redact.py`. Resolve `scripts/redact.py` from the same `skill_root` directory as this `SKILL.md`; fall back to installed locations only when that directory is unknown. It masks API keys, tokens, env-var assignments, JWTs, Bearer tokens, and common provider keys. The script reads stdin and writes redacted markdown to stdout.
 
 ```bash
-printf '%s' "$markdown" | python3 "${CLAUDE_PLUGIN_ROOT:-${HANDOFF_SKILL_ROOT:-$HOME/.handoff/skills}}/handoff-save/scripts/redact.py"
+skill_root=""
+for candidate in \
+  "${HANDOFF_SAVE_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:+$HANDOFF_SKILL_ROOT/handoff-save}" \
+  "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/handoff-save}" \
+  "$(pwd)" \
+  "$(pwd)/skills/handoff-save" \
+  "$HOME/.handoff/skills/handoff-save" \
+  "$HOME/.claude/skills/handoff-save" \
+  "$HOME/.codex/skills/handoff-save" \
+  "$HOME/.gjc/agent/skills/handoff-save" \
+  "$HOME/.omx/skills/handoff-save" \
+  "$HOME/.wcc/skills/handoff-save"; do
+  if [ -n "$candidate" ] && [ -f "$candidate/scripts/redact.py" ]; then
+    skill_root="$candidate"
+    break
+  fi
+done
+if [ -z "$skill_root" ]; then
+  echo "handoff-save skill root not found" >&2
+  exit 1
+fi
+printf '%s' "$markdown" | python3 "$skill_root/scripts/redact.py"
 ```
 
 ### Step 5: Write the file
 **Type**: generate
 
-1. Compute target dir: `${HANDOFF_ROOT:-$HOME/.handoff/sessions}/{project_slug}/`.
-2. Create it if needed.
-3. Filename: `handoff-YYYYMMDD-HHmmss.md` using local time.
-4. Write the redacted markdown.
-5. Update `latest.md` symlink/copy pointer for that project.
-6. Report the absolute path and whether auto-commit ran.
+Use the same deterministic file write sequence in every harness. `metadata_json` is the JSON emitted by `collect_meta.sh`, and `markdown` is the assembled handoff markdown before redaction.
+
+```bash
+set -euo pipefail
+
+: "${metadata_json:?metadata_json from collect_meta.sh is required}"
+: "${markdown:?assembled handoff markdown is required}"
+
+skill_root=""
+for candidate in \
+  "${HANDOFF_SAVE_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:-}" \
+  "${HANDOFF_SKILL_ROOT:+$HANDOFF_SKILL_ROOT/handoff-save}" \
+  "${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/handoff-save}" \
+  "$(pwd)" \
+  "$(pwd)/skills/handoff-save" \
+  "$HOME/.handoff/skills/handoff-save" \
+  "$HOME/.claude/skills/handoff-save" \
+  "$HOME/.codex/skills/handoff-save" \
+  "$HOME/.gjc/agent/skills/handoff-save" \
+  "$HOME/.omx/skills/handoff-save" \
+  "$HOME/.wcc/skills/handoff-save"; do
+  if [ -n "$candidate" ] && [ -f "$candidate/scripts/redact.py" ]; then
+    skill_root="$candidate"
+    break
+  fi
+done
+if [ -z "$skill_root" ]; then
+  echo "handoff-save skill root not found" >&2
+  exit 1
+fi
+
+project_slug=$(printf '%s' "$metadata_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["project_slug"])')
+handoff_root=$(printf '%s' "$metadata_json" | python3 -c 'import json,os,sys; print(json.load(sys.stdin).get("handoff_root") or os.path.expanduser("~/.handoff/sessions"))')
+target_dir="${handoff_root%/}/$project_slug"
+timestamp="$(date +%Y%m%d-%H%M%S)"
+target_file="$target_dir/handoff-$timestamp.md"
+tmp_file="$target_file.tmp"
+
+mkdir -p "$target_dir"
+trap 'rm -f "$tmp_file"' EXIT
+printf '%s' "$markdown" | python3 "$skill_root/scripts/redact.py" > "$tmp_file"
+mv "$tmp_file" "$target_file"
+printf '%s\n' "$target_file"
+```
+
+The filename pattern is always `handoff-YYYYMMDD-HHmmss.md` using local time. Report the absolute saved path.
 
 Use `~/.handoff/sessions` as the canonical storage path across Claude Code, Codex, Gajae Code, OMX, WCC/Whale Code, and DeepSeek-backed harnesses. `handoff-load` still reads legacy `~/.claude/handoff` files for backward compatibility.
-
-### Step 6: Optional auto-compact commit flow
-**Type**: automation design
-
-When the active harness exposes context usage and `context_window_used >= 50%`, or when the user asks for "compact", "자동 커밋", or "auto handoff", reduce manual steps:
-
-1. Run the normal save workflow above.
-2. Consider an automatic compact commit only when ALL conditions are true:
-   - the user has requested/allowed auto-compact behavior in this session or project,
-   - the worktree changes are attributable to the current task and do not include protected/user-owned files,
-   - no secrets are present in tracked changes or the handoff,
-   - required focused verification has passed, or the handoff clearly records why verification could not run,
-   - the branch is not a protected branch unless the user explicitly allows it.
-3. If safe, create a small checkpoint commit with a compact message such as `chore: compact handoff checkpoint` or `chore: handoff checkpoint <slug>`.
-4. Record `autoCommit: true`, commit SHA, verification command/result, and the saved handoff path in the document.
-5. If any condition fails, do not commit. Record `autoCommit: skipped` and the exact skip reason.
-
-Never fabricate context-window percentages. If the harness does not expose usage, treat the flow as manually triggered only.
 
 ## Document schema
 
@@ -110,8 +179,6 @@ savedAt: {ISO8601 with timezone}
 progressPercent: {0-100 or unknown}
 worktreeStatus: {clean|dirty, N changed files}
 testStatus: {passed|failed|not-run + exact command/result}
-autoCommit: {true|skipped|false}
-autoCommitSha: {short SHA or empty}
 nextPromptShort: {one-line hint, ≤ 80 chars}
 ---
 
@@ -165,7 +232,7 @@ nextPromptShort: {one-line hint, ≤ 80 chars}
 |---------|---------|---------------|
 | Storage root | `~/.handoff/sessions/` | Set `HANDOFF_ROOT` env var before invoking |
 | Legacy read root | `~/.claude/handoff/` | Load-side fallback only |
-| Project slug | basename of git toplevel (or cwd) | Override with `HANDOFF_SLUG` env var |
+| Project slug | basename of git toplevel (or cwd), normalized with `[^A-Za-z0-9._-]` → `_`, trim `_`, fallback `project` | Override with `HANDOFF_SLUG` env var |
 | Runtime agent | auto-detected best effort | Override with `HANDOFF_AGENT` env var |
 | Test status | `not recorded` | Set `HANDOFF_TEST_STATUS` or write observed test result in the handoff body |
 | Redaction patterns | API keys, tokens, env-var assignments, JWTs | Edit `scripts/redact.py` |
@@ -176,7 +243,6 @@ nextPromptShort: {one-line hint, ≤ 80 chars}
 - **Unified root across agents** — `.claude`, `.codex`, `.gjc/agent`, `.omx`, and `.wcc` installs all read/write the same `~/.handoff/sessions` documents.
 - **Specific prompts beat generic summaries** — every priority item includes a paste-ready prompt so the next agent can act immediately.
 - **Redaction before write** — handoff files live outside git but may still be shared accidentally.
-- **Auto-commit is guarded** — compact commits are useful, but the skill records skip reasons instead of committing unsafe or user-owned changes.
 
 ## Scripts
 
